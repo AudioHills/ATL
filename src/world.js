@@ -6,6 +6,7 @@ import * as M from './materials.js';
 import { box, rayBox } from './physics.js';
 import { rbox, geoCache } from './geo.js';
 import { PROPS } from './props.js';
+import { setAtmosphere } from './atmosphere.js';
 
 function basic(color, map, extra = {}) {
   return new THREE.MeshBasicMaterial({ color, map: map || null, ...extra });
@@ -22,7 +23,7 @@ export class World {
     scene.add(this.group);
     this.colliders = [];
     this.animated = [];
-    this.lightBudget = { low: 2, medium: 6, high: 10 }[this.quality];
+    this.lightBudget = { low: 2, medium: 6, high: 12 }[this.quality];
     const [x0, x1, z0, z1] = def.bounds;
     this.minX = x0; this.maxX = x1; this.minZ = z0; this.maxZ = z1;
     this.ceiling = def.ceiling || 60;
@@ -34,6 +35,8 @@ export class World {
     this.buildBounds();
     for (const p of def.props) this.buildProp(p);
     this.buildDetails();
+    this.buildLights();
+    this.buildShafts();
     this.mergeStatic();
     this.buildNav();
     this.buildBuckets();
@@ -51,24 +54,28 @@ export class World {
   // ---------- environment ----------
   buildEnvironment() {
     const th = this.th;
-    this.scene.background = new THREE.Color(th.skyBot);
+    this.scene.background = new THREE.Color(th.fog);
     this.scene.fog = new THREE.FogExp2(th.fog, th.fogDensity ?? (this.indoor ? 0.012 : 0.009));
     this.envLights = [];
-    const hemi = new THREE.HemisphereLight(th.hemiTop, th.hemiBot, th.hemiI * 0.6);
+    const hemi = new THREE.HemisphereLight(th.hemiTop, th.hemiBot, th.hemiI * (th.hemiScale ?? 0.6));
     this.scene.add(hemi); this.envLights.push(hemi);
     const sun = new THREE.DirectionalLight(th.sun, th.sunI * 1.3);
     const sd = new THREE.Vector3(...th.sunDir).normalize();
-    sun.position.copy(sd.multiplyScalar(110));
+    this.sunDir = sd.clone();
+    sun.position.copy(sd).multiplyScalar(110);
     sun.castShadow = this.quality !== 'low';
     const ext = Math.max(this.maxX - this.minX, this.maxZ - this.minZ) * 0.62;
-    Object.assign(sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: 260 });
+    const near = 1, far = 260;
+    Object.assign(sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near, far });
     const ms = this.quality === 'high' ? 4096 : 2048;
     sun.shadow.mapSize.set(ms, ms);
-    sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.03;
-    sun.shadow.radius = 3;
+    sun.shadow.bias = -0.0003;
+    sun.shadow.normalBias = 0.035;
+    // PCSS: penumbra (texels) per unit of normalised shadow depth = depth range * tan(light size) / texel size
+    sun.shadow.radius = this.quality === 'high' ? 1000 + (far - near) * (th.sunSoft ?? 0.025) / (2 * ext / ms) : 3;
     this.scene.add(sun, sun.target); this.envLights.push(sun, sun.target);
     this.sun = sun;
+    setAtmosphere(th, sd, { indoor: this.indoor });
 
     if (!this.indoor) this.buildSky();
     this.buildEnvMap();
@@ -76,117 +83,205 @@ export class World {
 
   buildSky() {
     const th = this.th;
+    const h = th.haze || {};
     const skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
       uniforms: {
         top: { value: new THREE.Color(th.skyTop) }, bot: { value: new THREE.Color(th.skyBot) },
+        haze: { value: new THREE.Color(th.fog) }, hazeK: { value: th.hazeK ?? 7 },
         cloud: { value: new THREE.Color(th.cloud || (this.night ? '#2a2230' : '#d8d4cc')) },
-        glow: { value: new THREE.Color(th.lamps) }, night: { value: this.night ? 1 : 0 },
-        cover: { value: th.clouds ?? 0.5 }, sunDir: { value: new THREE.Vector3(...th.sunDir).normalize() },
-        sunCol: { value: new THREE.Color(th.sun) }, time: { value: 0 },
+        glow: { value: new THREE.Color(th.cityGlow || th.lamps) }, night: { value: this.night ? 1 : 0 },
+        cover: { value: th.clouds ?? 0.5 }, sunDir: { value: this.sunDir.clone() },
+        sunCol: { value: new THREE.Color(h.color || th.sun) }, sunDisc: { value: th.sunDisc ?? (this.night ? 4 : 30) },
+        sunGlow: { value: th.sunGlow ?? 1 }, time: { value: 0 },
       },
-      vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      vertexShader: 'varying vec3 vP; void main(){ vP = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p.xyww; }',
       fragmentShader: `
-        uniform vec3 top, bot, cloud, glow, sunCol, sunDir; uniform float night, cover, time; varying vec3 vP;
-        float h(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
-        float n(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
-          return mix(mix(h(i),h(i+vec2(1,0)),f.x), mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x), f.y); }
-        float fbm(vec2 p){ float v=0.0, a=0.5; for(int i=0;i<6;i++){ v+=a*n(p); p*=2.03; a*=0.5; } return v; }
+        uniform vec3 top, bot, haze, cloud, glow, sunCol, sunDir; uniform float night, cover, time, hazeK, sunDisc, sunGlow; varying vec3 vP;
+        float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+        float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
+        float fbm(vec2 p){ float v = 0.0, a = 0.5; mat2 m = mat2(1.6, 1.2, -1.2, 1.6); for (int i = 0; i < 6; i++) { v += a * n2(p); p = m * p; a *= 0.5; } return v; }
         void main(){
           vec3 d = normalize(vP);
-          float hgt = clamp(d.y*1.4+0.12, 0.0, 1.0);
-          vec3 col = mix(bot, top, pow(hgt, 0.8));
-          // sun / moon disc + halo
-          float sd = max(dot(d, sunDir), 0.0);
-          col += sunCol * (pow(sd, 900.0) * (night > 0.5 ? 1.2 : 6.0) + pow(sd, 12.0) * (night > 0.5 ? 0.05 : 0.25));
-          // clouds projected on a dome
-          if (d.y > 0.0) {
-            vec2 uv = d.xz / (d.y + 0.15) * 1.6 + vec2(time*0.004, time*0.002);
-            float c = fbm(uv);
-            c = smoothstep(1.0 - cover, 1.0 - cover + 0.35, c);
-            float shade = fbm(uv * 1.7 + 3.1);
-            vec3 cc = cloud * (0.75 + 0.35 * shade);
-            if (night > 0.5) cc += glow * 0.18 * (1.0 - hgt);
-            else cc += sunCol * 0.25 * pow(sd, 4.0);
-            col = mix(col, cc, c * smoothstep(0.0, 0.18, d.y));
+          float y = d.y;
+          float mu = dot(d, sunDir);
+          float mup = max(mu, 0.0);
+          // sky gradient: zenith -> horizon with a non-linear falloff
+          vec3 col = mix(bot, top, pow(clamp(y, 0.0, 1.0), 0.5));
+          // broad forward-scatter glow on the sun side, hugging the horizon
+          col += sunCol * sunGlow * (0.35 * pow(mup, 4.0) * exp(-max(y, 0.0) * 3.0) + 0.5 * pow(mup, 48.0));
+          // sun / moon disc
+          // ~0.8 deg disc with limb darkening (moon a little larger for readability)
+          float c0 = night > 0.5 ? 0.99962 : 0.99985;
+          float disc = smoothstep(c0, c0 + (1.0 - c0) * 0.35, mu);
+          disc *= night > 0.5 ? 1.0 : mix(0.6, 1.0, smoothstep(c0, 1.0, mu));
+          if (night > 0.5) {
+            vec3 t1 = normalize(cross(sunDir, vec3(0.0, 1.0, 0.0)));
+            vec3 t2 = cross(t1, sunDir);
+            vec2 mp = vec2(dot(d, t1), dot(d, t2)) * 900.0;
+            float crater = 0.75 + 0.25 * fbm(mp * 0.35 + 3.0);
+            col += sunCol * disc * sunDisc * crater;
+            col += sunCol * 0.08 * pow(mup, 600.0);
+          } else {
+            col += sunCol * disc * sunDisc;
+            col += sunCol * sunGlow * (1.5 * pow(mup, 1200.0) + 0.35 * pow(mup, 180.0));
           }
-          // city light pollution on the horizon at night
-          col += glow * night * 0.22 * exp(-abs(d.y) * 9.0);
+          // clouds: domain-warped fbm on a curved layer, self-shadowed toward the sun
+          if (y > 0.0) {
+            vec2 uv = d.xz / (y + 0.1) * 0.75;
+            vec2 wind = vec2(time * 0.0045, time * 0.0022);
+            vec2 q = vec2(fbm(uv + wind), fbm(uv + vec2(5.2, 1.3) - wind));
+            float n = fbm(uv * 1.7 + q * 1.4 + wind * 1.8);
+            float dens = smoothstep(1.0 - cover, 1.0 - cover + 0.42, n);
+            float nS = fbm(uv * 1.7 + q * 1.4 + wind * 1.8 + sunDir.xz * 0.18);
+            float lit = clamp(0.55 + (n - nS) * 4.0, 0.15, 1.3);
+            vec3 cc = cloud * mix(0.62, 1.15, lit);
+            cc += sunCol * sunGlow * pow(mup, 8.0) * (1.0 - dens) * 1.6;
+            cc += sunCol * sunGlow * 0.25 * pow(mup, 2.0) * lit;
+            if (night > 0.5) cc += glow * 0.22 * exp(-y * 3.0);
+            col = mix(col, cc, dens * smoothstep(0.0, 0.15, y) * 0.96);
+          }
+          // stars at night
+          if (night > 0.5 && y > 0.05) {
+            vec2 sp = d.xz / (y + 0.4) * 260.0;
+            float st = h21(floor(sp));
+            float tw = 0.6 + 0.4 * sin(time * 3.0 + st * 60.0);
+            col += vec3(0.85, 0.9, 1.0) * step(0.9975, st) * tw * 1.4 * smoothstep(0.05, 0.4, y) * smoothstep(0.35, 0.0, length(fract(sp) - 0.5));
+          }
+          // aerial perspective: blend into the fog colour at the horizon so geometry fades seamlessly
+          vec3 hz = haze + sunCol * sunGlow * 0.3 * pow(mup, 6.0);
+          float hk = exp(-max(y, 0.0) * hazeK);
+          col = mix(col, hz, hk);
+          if (y < 0.0) col = hz;
+          // city light pollution
+          col += glow * night * 0.2 * exp(-abs(y) * 8.0);
           gl_FragColor = vec4(col, 1.0);
         }`,
     });
     this.skyMat = skyMat;
-    const sky = new THREE.Mesh(new THREE.SphereGeometry(450, 32, 16), skyMat);
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(450, 48, 24), skyMat);
     sky.renderOrder = -10;
+    sky.frustumCulled = false;
     this.sky = new THREE.Group();
     this.sky.add(sky);
-    if (this.th.stars) {
-      const pts = [];
-      for (let i = 0; i < 900; i++) {
-        const u = Math.random() * Math.PI * 2, v = Math.random() * 0.5 + 0.1;
-        pts.push(Math.cos(u) * Math.cos(v) * 420, Math.sin(v) * 420, Math.sin(u) * Math.cos(v) * 420);
-      }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-      this.sky.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfd8ff, size: 1.2, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.7 })));
-    }
     if (this.th.skyline) {
-      const mat = new THREE.MeshBasicMaterial({ map: TX.skyline(), transparent: true, fog: false, side: THREE.BackSide, depthWrite: false, color: this.night ? 0xffffff : 0x8a96a6 });
+      // distant skyline: silhouettes sink into the haze (aerial perspective); windows glow at night
+      const mat = new THREE.ShaderMaterial({
+        transparent: true, depthWrite: false, fog: false, side: THREE.BackSide,
+        uniforms: { map: { value: TX.skyline() }, haze: { value: new THREE.Color(th.fog) }, amt: { value: th.skylineHaze ?? (this.night ? 0.45 : 0.7) }, night: { value: this.night ? 1 : 0 }, sunCol: { value: new THREE.Color(th.sun) }, sunDir: { value: this.sunDir.clone() } },
+        vertexShader: 'varying vec2 vUv; varying vec3 vD; void main(){ vUv = uv; vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `
+          uniform sampler2D map; uniform vec3 haze, sunCol, sunDir; uniform float amt, night; varying vec2 vUv; varying vec3 vD;
+          void main(){
+            vec4 t = texture2D(map, vUv);
+            if (t.a < 0.02) discard;
+            vec3 c = t.rgb;
+            float win = smoothstep(0.25, 0.6, max(c.r, c.b));
+            vec3 base = mix(c, haze * 0.55, amt);
+            base += sunCol * 0.12 * pow(max(dot(normalize(vec3(vD.x, 0.0, vD.z)), normalize(vec3(sunDir.x, 0.0, sunDir.z))), 0.0), 4.0) * (1.0 - night);
+            vec3 o = mix(base, c * (night > 0.5 ? 2.2 : 0.6), win * (night > 0.5 ? 1.0 : 0.25));
+            o = mix(o, haze, smoothstep(0.45, 0.0, vUv.y) * 0.7);
+            gl_FragColor = vec4(o, t.a);
+          }`,
+      });
       const cyl = new THREE.Mesh(new THREE.CylinderGeometry(300, 300, 80, 64, 1, true), mat);
       cyl.position.y = 22;
+      cyl.renderOrder = -9;
       this.sky.add(cyl);
     }
     this.scene.add(this.sky);
   }
 
-  // Reflections: real HDR skies for day maps, a generated city-at-night or station
-  // environment for the others so wet streets and polished tile pick up colored light.
+  // Reflections/ambient: real HDR skies (rotated so their sun lines up with ours) for
+  // day maps, a generated city-at-night or station environment for the others.
   buildEnvMap() {
     const r = this.renderer;
     if (!r || this.quality === 'low') return;
     const kind = this.th.env;
     if (envCache.has(this.def.id)) { this.scene.environment = envCache.get(this.def.id); return; }
     const pmrem = new THREE.PMREMGenerator(r);
+    const tint = new THREE.Color(this.th.envTint || 0xffffff).multiplyScalar(this.th.envI ?? 1);
     if (kind && kind.endsWith('.hdr')) {
       new RGBELoader().load(`assets/hdr/${kind}`, (hdr) => {
-        hdr.mapping = THREE.EquirectangularReflectionMapping;
-        const rt = pmrem.fromEquirectangular(hdr).texture;
+        if (this.disposed) { hdr.dispose(); pmrem.dispose(); return; }
+        const rot = this.hdrRotation(hdr);
+        const es = new THREE.Scene();
+        es.add(new THREE.Mesh(new THREE.SphereGeometry(50, 64, 32), new THREE.ShaderMaterial({
+          side: THREE.BackSide, depthWrite: false,
+          uniforms: { map: { value: hdr }, rot: { value: rot }, tint: { value: tint } },
+          vertexShader: 'varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+          fragmentShader: `uniform sampler2D map; uniform float rot; uniform vec3 tint; varying vec3 vD;
+            void main(){ vec3 d = normalize(vD); float c = cos(rot), s = sin(rot);
+              d.xz = vec2(d.x * c - d.z * s, d.x * s + d.z * c);
+              vec2 uv = vec2(atan(d.z, d.x) * 0.15915494 + 0.5, asin(clamp(d.y, -1.0, 1.0)) * 0.31830989 + 0.5);
+              gl_FragColor = vec4(texture2D(map, uv).rgb * tint, 1.0); }`,
+        })));
+        const rt = pmrem.fromScene(es, 0, 0.1, 100).texture;
         envCache.set(this.def.id, rt);
         hdr.dispose(); pmrem.dispose();
+        es.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
         if (!this.disposed) this.scene.environment = rt;
       });
       return;
     }
     const es = new THREE.Scene();
+    const glowMat = (c, k) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(k), side: THREE.DoubleSide });
     if (this.indoor) {
-      es.background = new THREE.Color(0x24262a);
-      const room = new THREE.Mesh(new THREE.BoxGeometry(60, 10, 120), new THREE.MeshBasicMaterial({ color: 0x3a3c40, side: THREE.BackSide }));
+      es.background = new THREE.Color(0x16181b);
+      const room = new THREE.Mesh(new THREE.BoxGeometry(60, 10, 120), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x2a2c30).multiply(tint), side: THREE.BackSide }));
       room.position.y = 4; es.add(room);
       for (let z = -50; z < 50; z += 9) for (const x of [-14, 0, 14]) {
-        const p = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 4), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xf4f8ff).multiplyScalar(6) }));
+        const p = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 4), glowMat(0xf4f8ff, 7));
         p.position.set(x, 8.9, z); es.add(p);
       }
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(60, 0.6, 0.2), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff7a20).multiplyScalar(2) }));
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(60, 0.6, 0.2), glowMat(0xff7a20, 1.5));
       stripe.position.set(0, 2, -50); es.add(stripe);
     } else {
-      es.background = new THREE.Color(this.th.skyBot).multiplyScalar(0.6);
-      const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 16, 8), new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms: this.skyMat.uniforms, vertexShader: this.skyMat.vertexShader, fragmentShader: this.skyMat.fragmentShader }));
+      es.background = new THREE.Color(this.th.fog).multiplyScalar(0.6);
+      const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms: this.skyMat.uniforms, vertexShader: this.skyMat.vertexShader, fragmentShader: this.skyMat.fragmentShader }));
       es.add(sky);
       // a ring of lit windows, neon and street lamps around the viewer
       const cols = [0xffc870, 0xffb36b, 0xffd9a0, 0x9fd0ff, 0xffb36b, 0xffe08a, 0xff6a6a, 0x7fe3ff];
+      let s = 11;
+      const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
       for (let i = 0; i < 90; i++) {
-        const a = Math.random() * Math.PI * 2, d = 25 + Math.random() * 30;
-        const c = new THREE.Color(cols[i % cols.length]).multiplyScalar(1 + Math.random() * 2.5);
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.8 + Math.random() * 3, 0.5 + Math.random() * 1.5), new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide }));
-        m.position.set(Math.cos(a) * d, 1 + Math.random() * 14, Math.sin(a) * d); m.lookAt(0, m.position.y, 0); es.add(m);
+        const a = rnd() * Math.PI * 2, d = 25 + rnd() * 30;
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.8 + rnd() * 3, 0.5 + rnd() * 1.5), glowMat(cols[i % cols.length], 1 + rnd() * 2.5));
+        m.position.set(Math.cos(a) * d, 1 + rnd() * 14, Math.sin(a) * d); m.lookAt(0, m.position.y, 0); es.add(m);
+      }
+      // sodium street lamps overhead
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), glowMat(this.th.lamps, 10));
+        m.position.set(Math.cos(a) * 14, 7, Math.sin(a) * 14); es.add(m);
       }
       const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshBasicMaterial({ color: 0x0c0c10 }));
       ground.rotation.x = -Math.PI / 2; ground.position.y = -1; es.add(ground);
     }
     const rt = pmrem.fromScene(es, 0.02).texture;
     pmrem.dispose();
+    es.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
     envCache.set(this.def.id, rt);
     this.scene.environment = rt;
+  }
+
+  // Find the HDR's sun (brightest texel) and return the Y rotation that lines it up with our sun.
+  hdrRotation(hdr) {
+    const { data, width, height } = hdr.image;
+    if (!data || !width) return 0;
+    const half = hdr.type === THREE.HalfFloatType;
+    const get = (i) => (half ? THREE.DataUtils.fromHalfFloat(data[i]) : data[i]);
+    let best = -1, bx = 0;
+    for (let y = 0; y < height / 2; y += 2) for (let x = 0; x < width; x += 2) {
+      const i = (y * width + x) * 4;
+      const l = get(i) * 0.2126 + get(i + 1) * 0.7152 + get(i + 2) * 0.0722;
+      if (l > best) { best = l; bx = x; }
+    }
+    // equirect u -> azimuth atan(z, x) (three's convention)
+    const azHdr = ((bx + 0.5) / width - 0.5) * Math.PI * 2;
+    const azOur = Math.atan2(this.sunDir.z, this.sunDir.x);
+    return azHdr - azOur;
   }
 
   buildGround() {
@@ -198,8 +293,20 @@ export class World {
     const set = (sets[th.ground] || sets.asphalt)();
     const scale = th.ground === 'tile' ? 4 : 10;
     const groundMat = M.std({ set, rx: w / scale, ry: d / scale, normal: 1, envI: th.ground === 'tile' ? 0.9 : 1 });
-    if (th.ground === 'tile') { groundMat.roughnessMap = null; groundMat.roughness = 0.25; }
-    const g = new THREE.Mesh(new THREE.PlaneGeometry(w, d), groundMat);
+    if (th.ground === 'tile') { groundMat.roughnessMap = null; groundMat.roughness = 0.3; groundMat.color.setScalar(0.72); }
+    // rain-soaked surfaces: darker albedo, much glossier (roughness map still keeps puddles mirror-like)
+    const wetCache = new Map();
+    const wetten = (m, k = 1) => {
+      if (!wet) return m;
+      if (wetCache.has(m)) return wetCache.get(m);
+      const c = m.clone();
+      c.roughness = m.roughness * (th.wetRough ?? 0.55) / k;
+      c.color.multiplyScalar(0.78);
+      c.envMapIntensity = (m.envMapIntensity ?? 1) * 1.3;
+      wetCache.set(m, c);
+      return c;
+    };
+    const g = new THREE.Mesh(new THREE.PlaneGeometry(w, d), wetten(groundMat));
     g.rotation.x = -Math.PI / 2; g.position.set(cx, 0, cz); g.receiveShadow = true;
     this.group.add(g);
     this.sidewalks = [];
@@ -216,9 +323,10 @@ export class World {
         case 'track': mat = M.std({ set: M.dirtSet(), rx: p.w / 4, ry: p.d / 4, color: 0x6a6a6a }); break;
         default: mat = M.std({ set: M.concreteSet() }); break;
       }
+      mat = wetten(mat, { sidewalk: 0.8, dirt: 0.6, grass: 0.5 }[p.tex] ?? 1);
       if (raised) {
         // real curb: a raised slab with a concrete lip
-        const curb = M.std({ set: M.concreteSet('#a29e96', 'curb'), rx: p.d / 4, ry: 0.1 });
+        const curb = wetten(M.std({ set: M.concreteSet('#a29e96', 'curb'), rx: p.d / 4, ry: 0.1 }), 0.8);
         const m = new THREE.Mesh(new THREE.BoxGeometry(p.w, raised, p.d), [curb, curb, mat, curb, curb, curb]);
         m.position.set(p.x, raised / 2, p.z); m.receiveShadow = true; m.castShadow = false;
         this.group.add(m);
@@ -257,9 +365,7 @@ export class World {
         }
       }
       for (const [x, z] of [[0, -40], [0, -13], [0, 13], [0, 40], [-25, -20], [25, 20], [-14, 30], [14, -30]]) {
-        if (this.lightBudget-- <= 0) break;
-        const l = new THREE.PointLight(0xe8f2ff, 60, 30, 1.6);
-        l.position.set(x, this.ceiling - 0.7, z); this.group.add(l);
+        this.pointLight(0xe8f2ff, x, this.ceiling - 0.7, z, 140, 30, 1);
       }
     }
   }
@@ -352,12 +458,109 @@ export class World {
     return m;
   }
 
-  pointLight(color, x, y, z, intensity = 30, dist = 22) {
-    if (this.lightBudget <= 0) return;
-    this.lightBudget--;
-    const l = new THREE.PointLight(color, intensity, dist, 1.8);
-    l.position.set(x, y, z);
-    this.group.add(l);
+  // Point lights are requested while props build, then allocated by importance so the
+  // light budget goes to street lamps and big fixtures before small sign spill.
+  pointLight(color, x, y, z, intensity = 30, dist = 22, prio = 0) {
+    (this.lightReqs || (this.lightReqs = [])).push({ color, x, y, z, intensity, dist, prio });
+  }
+
+  buildLights() {
+    const reqs = (this.lightReqs || []).sort((a, b) => (b.prio - a.prio) || (b.intensity * b.dist - a.intensity * a.dist));
+    const k = this.th.lightScale ?? 1;
+    for (const q of reqs) {
+      if (this.lightBudget <= 0) break;
+      // drop lights that sit almost on top of a stronger one already placed
+      if (this.placedLights?.some((p) => (p.x - q.x) ** 2 + (p.z - q.z) ** 2 < 4)) continue;
+      this.lightBudget--;
+      const l = new THREE.PointLight(q.color, q.intensity * k, q.dist, 2);
+      l.position.set(q.x, q.y, q.z);
+      this.group.add(l);
+      (this.placedLights || (this.placedLights = [])).push(q);
+    }
+    this.lightReqs = [];
+  }
+
+  // Volumetric-looking light shafts: soft additive cones under street lamps and the
+  // station's ceiling panels. One shared material, so mergeStatic folds them into one draw.
+  buildShafts() {
+    const amt = this.th.shafts ?? 0;
+    if (!amt || this.quality === 'low') return;
+    const mat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
+      // pure additive colour; leave destination alpha (the SSR reflectivity mask) untouched
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+      uniforms: { amt: { value: amt } },
+      vertexShader: `
+        attribute vec3 shaftColor; attribute vec2 shaftY;
+        varying vec3 vC; varying vec3 vN; varying vec3 vV; varying float vH;
+        void main(){
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vC = shaftColor;
+          vH = clamp((wp.y - shaftY.x) / max(shaftY.y - shaftY.x, 0.01), 0.0, 1.0);
+          vec4 mv = viewMatrix * wp;
+          vN = normalize(normalMatrix * normal);
+          vV = normalize(-mv.xyz);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform float amt; varying vec3 vC; varying vec3 vN; varying vec3 vV; varying float vH;
+        void main(){
+          // thickness through the cone ~ how face-on the surface is; light concentrates near the lamp
+          float edge = pow(abs(dot(normalize(vN), normalize(vV))), 2.6);
+          float fall = (pow(vH, 3.0) * 0.8 + vH * 0.2) * smoothstep(0.0, 0.25, vH);
+          gl_FragColor = vec4(vC * edge * fall * amt, 0.0);
+        }`,
+    });
+    const add = (x, yTop, z, rTop, rBot, yBot, color) => {
+      const h = yTop - yBot;
+      const g = new THREE.CylinderGeometry(rTop, rBot, h, 20, 6, true);
+      g.translate(x, yBot + h / 2, z);
+      const n = g.attributes.position.count;
+      const c = new THREE.Color(color);
+      const col = new Float32Array(n * 3), ys = new Float32Array(n * 2);
+      for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; ys[i * 2] = yBot; ys[i * 2 + 1] = yTop; }
+      g.setAttribute('shaftColor', new THREE.BufferAttribute(col, 3));
+      g.setAttribute('shaftY', new THREE.BufferAttribute(ys, 2));
+      return g;
+    };
+    const geos = [];
+    for (const p of this.def.props) {
+      if (p.t !== 'lamp' || p.wall) continue;
+      const toward = p.x < 0 ? 1 : -1;
+      const hx = p.x + toward * 2.1, hy = 7.15;
+      geos.push(add(hx, hy - 0.12, p.z, 0.32, 3.4, 0, this.th.lamps));
+    }
+    if (this.indoor) {
+      for (let z = this.minZ + 6; z < this.maxZ - 2; z += 9) {
+        for (const x of [-25, -14, 0, 14, 25]) geos.push(add(x, this.ceiling - 0.16, z, 0.7, 2.6, 0, 0xdfeaff));
+      }
+    }
+    if (!geos.length) return;
+    // merge by hand (custom attributes) into a single mesh
+    let nv = 0, ni = 0;
+    for (const g of geos) { nv += g.attributes.position.count; ni += g.index.count; }
+    const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3), ys = new Float32Array(nv * 2);
+    const idx = new Uint32Array(ni);
+    let vo = 0, io = 0;
+    for (const g of geos) {
+      pos.set(g.attributes.position.array, vo * 3); nor.set(g.attributes.normal.array, vo * 3);
+      col.set(g.attributes.shaftColor.array, vo * 3); ys.set(g.attributes.shaftY.array, vo * 2);
+      for (let i = 0; i < g.index.count; i++) idx[io++] = g.index.getX(i) + vo;
+      vo += g.attributes.position.count;
+      g.dispose();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('shaftColor', new THREE.BufferAttribute(col, 3));
+    geo.setAttribute('shaftY', new THREE.BufferAttribute(ys, 2));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = 5;
+    this.group.add(mesh);
+    this.animated.push({ type: 'shaft', mesh });
   }
 
   insideCollider(x, z, pad = 0.6) {

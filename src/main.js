@@ -294,7 +294,7 @@ class App {
       <label class="chk"><input type="checkbox" id="s-gm" ${s.gameMusic ? 'checked' : ''}> Keep the beat playing during matches</label>
       <label class="chk"><input type="checkbox" id="s-inv" ${s.invert ? 'checked' : ''}> Invert mouse Y</label>
       <div class="qrow"><span>Graphics quality</span><div class="pills">${['low', 'medium', 'high'].map((q) => `<button class="pill ${s.quality === q ? 'sel' : ''}" data-q="${q}">${q[0].toUpperCase() + q.slice(1)}</button>`).join('')}</div></div>
-      <p class="note">High: 4K shadows, multisampling, reflections and bloom. Medium: 2K shadows and FXAA. Low: no post-processing or shadows, for older laptops. Lighting changes apply from the next map load.</p>`;
+      <p class="note">High: 4K contact-hardening shadows, 4x MSAA, ambient occlusion, screen-space reflections, light shafts and bloom. Medium: 2K shadows, ambient occlusion and FXAA. Low: no post-processing or shadows, for older laptops. Lighting changes apply from the next map load.</p>`;
     const bind = (id, key, fmt, apply) => $(id).addEventListener('input', (e) => {
       s[key] = +e.target.value; $(`#v-${key}`).textContent = fmt(s[key]); apply?.(s[key]); saveProfile(this.profile);
     });
