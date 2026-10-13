@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ATL: Zone Wars</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2212%22 fill=%22%23111%22/%3E%3Ctext x=%2232%22 y=%2244%22 font-size=%2230%22 font-family=%22Impact,sans-serif%22 text-anchor=%22middle%22 fill=%22%23ffb300%22%3EATL%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{ "imports": { "three": "./lib/three.module.min.js" } }</script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud"></div>
+
+  <section id="main" class="screen">
+    <div class="menu-left">
+      <div class="logo"><span class="logo-atl">ATL</span><span class="logo-sub">ZONE WARS</span></div>
+      <div class="tagline">Eastside vs Westside. Hold your block.</div>
+      <nav>
+        <button id="btn-play" class="big">Play</button>
+        <button id="btn-loadouts">Create-a-Class</button>
+        <button id="btn-settings">Settings</button>
+        <button id="btn-controls">Controls</button>
+      </nav>
+      <label class="namebox">Callsign <input id="player-name" maxlength="18"></label>
+      <div id="rank" class="rank"></div>
+    </div>
+    <div class="menu-foot">Desktop · mouse &amp; keyboard · all characters, crews and places are fictional takes on the A</div>
+  </section>
+
+  <section id="setup" class="screen hidden panel">
+    <header><button data-back>‹ Back</button><h2>Match Setup</h2><button id="btn-start" class="go">Run It ›</button></header>
+    <div id="setup-body" class="body"></div>
+  </section>
+
+  <section id="loadouts" class="screen hidden panel">
+    <header><button data-back>‹ Back</button><h2>Create-a-Class</h2><span></span></header>
+    <div id="loadouts-body" class="body lo"></div>
+  </section>
+
+  <section id="settings" class="screen hidden panel narrow">
+    <header><button data-back>‹ Back</button><h2>Settings</h2><span></span></header>
+    <div id="settings-body" class="body settings"></div>
+  </section>
+
+  <section id="controls" class="screen hidden panel narrow">
+    <header><button data-back>‹ Back</button><h2>Controls</h2><span></span></header>
+    <div class="body keys">
+      <div><kbd>W A S D</kbd> Move</div>
+      <div><kbd>Mouse</kbd> Look</div>
+      <div><kbd>Left click</kbd> Shoot</div>
+      <div><kbd>Right click</kbd> Aim down sights</div>
+      <div><kbd>Shift</kbd> Sprint</div>
+      <div><kbd>Space</kbd> Jump</div>
+      <div><kbd>C</kbd> / <kbd>Ctrl</kbd> Crouch (toggle / hold)</div>
+      <div><kbd>R</kbd> Reload</div>
+      <div><kbd>1</kbd> <kbd>2</kbd> <kbd>Q</kbd> <kbd>Wheel</kbd> Switch weapon</div>
+      <div><kbd>G</kbd> Frag grenade</div>
+      <div><kbd>V</kbd> / <kbd>F</kbd> Quick melee</div>
+      <div><kbd>3</kbd> <kbd>4</kbd> <kbd>5</kbd> Killstreaks: UAV · Airstrike · Ghetto Bird</div>
+      <div><kbd>Tab</kbd> Scoreboard</div>
+      <div><kbd>Esc</kbd> Pause</div>
+      <p class="note">Health regenerates after 4 seconds out of combat. Enemies show up on your radar when they fire, unless they run Ghost. Dead? Pick your next class with 1–5.</p>
+    </div>
+  </section>
+
+  <section id="end" class="screen hidden panel narrow">
+    <div id="end-body" class="body"></div>
+    <footer><button id="btn-menu">Main Menu</button><button id="btn-again" class="go">Run It Back</button></footer>
+  </section>
+
+  <div id="pause" class="hidden">
+    <div class="pause-box">
+      <h2>Paused</h2>
+      <button id="btn-resume" class="go">Resume</button>
+      <button id="btn-quit">Leave Match</button>
+      <p class="note">Click resume to lock the mouse again.</p>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
