@@ -112,7 +112,10 @@ export class World {
           // broad forward-scatter glow on the sun side, hugging the horizon
           col += sunCol * sunGlow * (0.35 * pow(mup, 4.0) * exp(-max(y, 0.0) * 3.0) + 0.5 * pow(mup, 48.0));
           // sun / moon disc
-          float disc = smoothstep(0.99955, 0.99975, mu);
+          // ~0.8 deg disc with limb darkening (moon a little larger for readability)
+          float c0 = night > 0.5 ? 0.99962 : 0.99985;
+          float disc = smoothstep(c0, c0 + (1.0 - c0) * 0.35, mu);
+          disc *= night > 0.5 ? 1.0 : mix(0.6, 1.0, smoothstep(c0, 1.0, mu));
           if (night > 0.5) {
             vec3 t1 = normalize(cross(sunDir, vec3(0.0, 1.0, 0.0)));
             vec3 t2 = cross(t1, sunDir);
@@ -122,6 +125,7 @@ export class World {
             col += sunCol * 0.08 * pow(mup, 600.0);
           } else {
             col += sunCol * disc * sunDisc;
+            col += sunCol * sunGlow * (1.5 * pow(mup, 1200.0) + 0.35 * pow(mup, 180.0));
           }
           // clouds: domain-warped fbm on a curved layer, self-shadowed toward the sun
           if (y > 0.0) {
@@ -319,7 +323,7 @@ export class World {
         case 'track': mat = M.std({ set: M.dirtSet(), rx: p.w / 4, ry: p.d / 4, color: 0x6a6a6a }); break;
         default: mat = M.std({ set: M.concreteSet() }); break;
       }
-      mat = wetten(mat, p.tex === 'sidewalk' ? 0.8 : 1);
+      mat = wetten(mat, { sidewalk: 0.8, dirt: 0.6, grass: 0.5 }[p.tex] ?? 1);
       if (raised) {
         // real curb: a raised slab with a concrete lip
         const curb = wetten(M.std({ set: M.concreteSet('#a29e96', 'curb'), rx: p.d / 4, ry: 0.1 }), 0.8);
