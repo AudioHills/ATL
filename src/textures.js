@@ -191,14 +191,52 @@ export function metal(base = '#666b70', key = 'metal') {
 }
 
 export function chainlink() {
-  const t = canvasTex('chainlink', 64, 64, (g, w, h) => {
-    g.clearRect(0, 0, w, h);
-    g.strokeStyle = 'rgba(170,175,180,0.95)'; g.lineWidth = 2;
-    g.beginPath(); g.moveTo(0, 0); g.lineTo(w, h); g.moveTo(w, 0); g.lineTo(0, h);
-    g.moveTo(-w / 2, 0); g.lineTo(w / 2, h); g.moveTo(w / 2, 0); g.lineTo(w * 1.5, h);
-    g.moveTo(w / 2, 0); g.lineTo(-w / 2, h); g.moveTo(w * 1.5, 0); g.lineTo(w / 2, h);
-    g.stroke();
-  });
+  // Woven galvanized mesh: 4 diamonds per tile (props repeat it every 0.5 m, so ~12 cm
+  // links), shaded round wire with over/under knuckles. Mips are built by hand with
+  // coverage-preserving alpha so the alpha-tested mesh doesn't dissolve at distance.
+  if (cache.has('chainlink3')) return cache.get('chainlink3');
+  const S = 256, n = 4, step = S / n;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.lineCap = 'round';
+  const wire = (x0, y0, x1, y1) => {
+    for (const [lw, col] of [[7, 'rgba(70,74,78,1)'], [5, 'rgba(150,156,162,1)'], [2.4, 'rgba(205,210,215,1)'], [1, 'rgba(245,248,250,1)']]) {
+      g.strokeStyle = col; g.lineWidth = lw;
+      g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+    }
+  };
+  for (let k = -n; k <= n * 2; k++) {
+    wire(k * step, 0, k * step + S, S);
+    wire(k * step + S, 0, k * step, S);
+  }
+  for (let y = 0; y <= n * 2; y++) for (let x = 0; x <= n * 2; x++) {
+    if ((x + y) % 2) continue;
+    g.fillStyle = 'rgba(190,195,200,1)'; g.beginPath(); g.arc(x * step / 2, y * step / 2, 3.4, 0, 7); g.fill();
+  }
+  const base = new Uint8Array(g.getImageData(0, 0, S, S).data);
+  const levels = [{ data: base, width: S, height: S }];
+  let src = base, w = S, lvl = 0;
+  while (w > 1) {
+    const dw = w >> 1, dst = new Uint8Array(dw * dw * 4);
+    lvl++;
+    for (let y = 0; y < dw; y++) for (let x = 0; x < dw; x++) {
+      const a = ((y * 2) * w + x * 2) * 4, b = a + 4, cc = a + w * 4, d = cc + 4, o = (y * dw + x) * 4;
+      const al = src[a + 3] + src[b + 3] + src[cc + 3] + src[d + 3];
+      for (let k = 0; k < 3; k++) {
+        const wsum = src[a + k] * src[a + 3] + src[b + k] * src[b + 3] + src[cc + k] * src[cc + 3] + src[d + k] * src[d + 3];
+        dst[o + k] = al ? wsum / al : 0;
+      }
+      dst[o + 3] = Math.min(255, (al / 4) * (1 + Math.min(lvl, 4) * 0.35));
+    }
+    levels.push({ data: dst, width: dw, height: dw });
+    src = dst; w = dw;
+  }
+  const t = new THREE.DataTexture(base, S, S, THREE.RGBAFormat);
+  t.mipmaps = levels; t.generateMipmaps = false;
+  t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  t.flipY = false; t.needsUpdate = true;
+  cache.set('chainlink3', t);
   return t;
 }
 
@@ -238,43 +276,161 @@ export function facade(wallColor, seed, opts = {}) {
   });
 }
 
-const TAGS = ['ATL', 'ZONE 6', 'A-TOWN', 'WESTSIDE', 'EASTSIDE', '404', 'BANKHEAD', 'SWAG', 'DTA', 'PEACH ST', '1996', 'GO CRAZY', 'SOUTHSIDE', 'TRAP', 'NO CAP'];
-const TAG_COLORS = ['#ff3d6e', '#30e3ff', '#ffde3b', '#7cff4f', '#ff8a1f', '#c26bff', '#ffffff'];
+const TAGS = ['ATL', 'ZONE 6', 'A-TOWN', 'WESTSIDE', 'EASTSIDE', '404', 'BANKHEAD', 'SWAG', 'DTA', 'PEACH ST', '1996', 'GO CRAZY', 'SOUTHSIDE', 'TRAP', 'NO CAP', 'Z6R', 'WSK', 'REAPERS', 'KINGS', 'SKRT'];
+const TAG_COLORS = ['#ff3d6e', '#30e3ff', '#ffde3b', '#7cff4f', '#ff8a1f', '#c26bff', '#ffffff', '#e8e8e8', '#ff5a1f', '#8e44ff'];
+const TAG_FONT = '"Anton", Impact, "Arial Black", "Inter", sans-serif';
 
-function drawTag(g, cx, cy, r, maxW) {
-  const text = TAGS[Math.floor(r() * TAGS.length)];
-  const col = TAG_COLORS[Math.floor(r() * TAG_COLORS.length)];
-  const size = 40 + r() * 30;
-  g.save();
-  g.translate(cx / 2, cy);
-  g.rotate((r() - 0.5) * 0.25);
-  g.font = `900 ${size}px Impact, "Arial Black", sans-serif`;
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  const m = g.measureText(text).width;
-  if (m > maxW) g.scale(maxW / m, maxW / m);
-  g.lineJoin = 'round';
-  g.strokeStyle = '#111'; g.lineWidth = 10; g.strokeText(text, 0, 0);
-  g.fillStyle = col; g.fillText(text, 0, 0);
-  g.strokeStyle = 'rgba(255,255,255,0.6)'; g.lineWidth = 1.5; g.strokeText(text, 0, 0);
-  g.fillStyle = col;
-  for (let i = 0; i < 6; i++) {
-    const x = (r() - 0.5) * m * 0.8;
-    g.fillRect(x, size * 0.3, 2.5, 8 + r() * 26);
+function scratchCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
+  return c;
+}
+
+// Spray-painted piece: per-letter hand jitter, soft overspray halo, blurred outline,
+// block shadow, two-tone fade fill, highlight flicks, drips, speckle and weathering.
+// Draws onto g centred at (cx, cy), scaled to fit maxW. r is a 0..1 random stream.
+// Letters are rasterised once into masks; every blurred layer is a single filtered
+// drawImage so this stays cheap even on software canvas.
+export function paintTag(g, cx, cy, maxW, r, opts = {}) {
+  const text = opts.text || TAGS[Math.floor(r() * TAGS.length)];
+  const style = opts.style ?? Math.floor(r() * 3); // 0 piece, 1 throw-up (bubble/silver), 2 straight-letter tag
+  let col = TAG_COLORS[Math.floor(r() * TAG_COLORS.length)];
+  let col2 = TAG_COLORS[Math.floor(r() * TAG_COLORS.length)];
+  let line = r() < 0.7 ? '#0d0d10' : TAG_COLORS[Math.floor(r() * TAG_COLORS.length)];
+  if (style === 1) { col = r() < 0.6 ? '#d9dde2' : '#f2f2f2'; col2 = '#9aa3ad'; line = '#0b0b0d'; }
+  if (style === 2) { line = col; }
+  const size = Math.max(36, Math.min(130, (maxW / Math.max(2, text.length)) * 1.4));
+  const k = size / 150; // stroke widths below are tuned at 150px
+  const pad = size * 0.6;
+  const mg = scratchCanvas(10, 10).getContext('2d');
+  mg.font = `900 ${size}px ${TAG_FONT}`;
+  const letters = [];
+  let x = 0;
+  for (const ch of text) {
+    const w = ch === ' ' ? size * 0.3 : mg.measureText(ch).width;
+    const sc = style === 2 ? 0.95 + r() * 0.1 : 0.88 + r() * 0.3;
+    letters.push({ ch, x: x + w / 2, y: (r() - 0.5) * size * (style === 2 ? 0.06 : 0.16), rot: (r() - 0.5) * (style === 2 ? 0.08 : 0.3), sc });
+    x += w * (style === 1 ? 0.8 : 0.9);
   }
+  const W = Math.ceil(x + pad * 2), H = Math.ceil(size * 1.9 + pad);
+  const by = H * 0.48;
+  const lettersTo = (ctx, mode, lw) => {
+    ctx.font = `900 ${size}px ${TAG_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.lineWidth = lw || 1;
+    for (const L of letters) {
+      if (L.ch === ' ') continue;
+      ctx.save(); ctx.translate(pad + L.x, by + L.y); ctx.rotate(L.rot); ctx.scale(L.sc, L.sc * (style === 1 ? 1.12 : 1));
+      if (mode === 'fill') ctx.fillText(L.ch, 0, 0); else ctx.strokeText(L.ch, 0, 0);
+      ctx.restore();
+    }
+  };
+  // tinted mask helper: draws letters in white then recolours
+  const mask = (mode, lw, color) => {
+    const c = scratchCanvas(W, H), t = c.getContext('2d');
+    t.fillStyle = t.strokeStyle = '#fff';
+    lettersTo(t, mode, lw);
+    if (mode === 'both') lettersTo(t, 'fill');
+    t.globalCompositeOperation = 'source-in'; t.fillStyle = color; t.fillRect(0, 0, W, H);
+    return c;
+  };
+  const c = scratchCanvas(W, H), t = c.getContext('2d');
+  // overspray halo
+  t.filter = `blur(${Math.max(2, 9 * k)}px)`; t.globalAlpha = style === 2 ? 0.18 : 0.32;
+  t.drawImage(mask('both', size * (style === 1 ? 0.34 : 0.26), line), 0, 0);
+  t.globalAlpha = 1; t.filter = 'none';
+  if (style !== 2) {
+    // 3D block shadow (crisp copies, softened once)
+    const sh = scratchCanvas(W, H), sg = sh.getContext('2d');
+    const fillM = mask('fill', 1, r() < 0.5 ? '#141418' : '#3a1f5c');
+    for (let j = 1; j <= 8; j++) sg.drawImage(fillM, j * 1.6 * k, j * 1.6 * k);
+    t.filter = `blur(${1.2 * k}px)`; t.drawImage(sh, 0, 0);
+    // outline
+    t.filter = `blur(${Math.max(0.6, 1.6 * k)}px)`; t.drawImage(mask('both', size * (style === 1 ? 0.2 : 0.14), line), 0, 0);
+    t.filter = 'none';
+  }
+  // fill (two-tone fade) with sweeps and highlights clipped to it
+  const f = scratchCanvas(W, H), fg = f.getContext('2d');
+  const grd = fg.createLinearGradient(0, by - size * 0.5, 0, by + size * 0.5);
+  grd.addColorStop(0, col); grd.addColorStop(0.55, col); grd.addColorStop(1, style === 2 ? col : col2);
+  fg.fillStyle = grd; fg.strokeStyle = col;
+  lettersTo(fg, 'fill');
+  if (style === 2) lettersTo(fg, 'stroke', size * 0.05);
+  fg.globalCompositeOperation = 'source-atop';
+  const sweeps = scratchCanvas(W, H), swg = sweeps.getContext('2d');
+  swg.lineCap = 'round';
+  for (let i = 0; i < 26; i++) {
+    swg.strokeStyle = `rgba(${r() < 0.5 ? '255,255,255' : '0,0,0'},${0.05 + r() * 0.08})`;
+    swg.lineWidth = (6 + r() * 16) * k;
+    const sx = r() * W, sy = by - size * 0.6 + r() * size * 1.2;
+    swg.beginPath(); swg.moveTo(sx, sy); swg.quadraticCurveTo(sx + (40 + r() * 80) * k, sy + (-30 + r() * 60) * k, sx + (120 + r() * 160) * k, sy + (r() - 0.5) * 60 * k); swg.stroke();
+  }
+  swg.strokeStyle = 'rgba(255,255,255,0.85)'; swg.lineWidth = 4 * k; swg.fillStyle = 'rgba(255,255,255,0.9)';
+  for (const L of letters) {
+    if (L.ch === ' ' || r() < 0.25) continue;
+    const hx = pad + L.x - size * 0.18, hy = by + L.y - size * 0.3;
+    swg.beginPath(); swg.moveTo(hx, hy + 18 * k); swg.lineTo(hx, hy); swg.lineTo(hx + 16 * k, hy - 4 * k); swg.stroke();
+    swg.beginPath(); swg.arc(hx + 26 * k, hy - 4 * k, 2.5 * k, 0, 7); swg.fill();
+  }
+  fg.filter = `blur(${Math.max(0.8, 2.5 * k)}px)`; fg.drawImage(sweeps, 0, 0); fg.filter = 'none';
+  fg.globalCompositeOperation = 'source-over';
+  t.filter = `blur(${Math.max(0.4, 0.9 * k)}px)`; t.drawImage(f, 0, 0); t.filter = 'none';
+  // drips from the bottoms of letters
+  const dripCol = style === 2 ? col : (r() < 0.5 ? col2 : line);
+  t.fillStyle = dripCol; t.globalAlpha = 0.85;
+  for (const L of letters) {
+    if (L.ch === ' ') continue;
+    const n = r() < 0.6 ? 1 + Math.floor(r() * 3) : 0;
+    for (let j = 0; j < n; j++) {
+      const dx = pad + L.x + (r() - 0.5) * size * 0.4, dy = by + L.y + size * 0.3, len = (12 + r() * r() * 135) * k, wd = (2 + r() * 3) * Math.max(0.5, k);
+      t.fillRect(dx - wd / 2, dy, wd, len);
+      t.beginPath(); t.arc(dx, dy + len, wd * 0.85, 0, 7); t.fill();
+    }
+  }
+  t.globalAlpha = 1;
+  // overspray speckle
+  for (let i = 0; i < 700; i++) {
+    const a = r() * 6.283, d = Math.sqrt(r()) * W * 0.5;
+    t.fillStyle = r() < 0.5 ? col : line; t.globalAlpha = 0.25 + r() * 0.4;
+    t.fillRect(W / 2 + Math.cos(a) * d, by + Math.sin(a) * d * 0.35, 1 + r() * 1.5, 1 + r() * 1.5);
+  }
+  t.globalAlpha = 1;
+  // weathering: speckled fade and scuffs
+  t.globalCompositeOperation = 'destination-out';
+  const age = opts.age ?? r() * 0.8;
+  t.fillStyle = '#000';
+  for (let i = 0; i < 2500 * age * k; i++) { t.globalAlpha = 0.2 + r() * 0.6; t.fillRect(r() * W, r() * H, 1 + r() * 3 * k, 1 + r() * 3 * k); }
+  const scuffs = scratchCanvas(W, H), scg = scuffs.getContext('2d');
+  scg.fillStyle = '#000';
+  for (let i = 0; i < 6 * age; i++) { scg.globalAlpha = 0.25 + r() * 0.35; scg.beginPath(); scg.ellipse(r() * W, r() * H, (20 + r() * 60) * k, (10 + r() * 30) * k, r() * 3, 0, 7); scg.fill(); }
+  t.globalAlpha = 1; t.filter = `blur(${6 * k}px)`; t.drawImage(scuffs, 0, 0);
+  t.filter = 'none'; t.globalCompositeOperation = 'source-over';
+  // place
+  const scale = Math.min(maxW / (W - pad), (opts.maxH || 1e9) / (H - pad * 0.5));
+  g.save();
+  g.translate(cx, cy);
+  g.rotate((r() - 0.5) * 0.12);
+  g.scale(scale, scale);
+  g.drawImage(c, -W / 2, -H / 2);
   g.restore();
 }
 
+function drawTag(g, cx, cy, r, maxW) {
+  paintTag(g, cx / 2, cy, maxW, r);
+}
+
 export function graffiti(seed) {
-  return canvasTex('graf' + seed, 512, 256, (g, w, h) => {
+  return canvasTex('graf' + seed, 1024, 512, (g, w, h) => {
     const r = rnd(seed * 31 + 1);
     g.clearRect(0, 0, w, h);
-    drawTag(g, w, h / 2, r, w * 0.85);
+    paintTag(g, w / 2, h / 2, w * 0.86, r, { maxH: h * 0.95 });
   }, false);
 }
 
 export function sign(text, bg = '#b71c1c', fg = '#fff', opts = {}) {
   const key = `sign${text}${bg}${fg}${opts.sub || ''}`;
-  return canvasTex(key, 512, 128, (g, w, h) => {
+  return canvasTex(key, 1024, 256, (g) => {
+    const w = 512, h = 128;
+    g.scale(2, 2);
     g.fillStyle = bg; g.fillRect(0, 0, w, h);
     g.strokeStyle = opts.border || 'rgba(255,255,255,0.6)'; g.lineWidth = 6; g.strokeRect(6, 6, w - 12, h - 12);
     g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
