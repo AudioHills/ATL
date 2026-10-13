@@ -1,6 +1,7 @@
 // Pooled visual effects: tracers, muzzle flashes, impact puffs, explosions.
 import * as THREE from 'three';
 import { smokeSprite, flashSprite } from './textures.js';
+import { bulletHole } from './materials.js';
 
 export class Effects {
   constructor(scene) {
@@ -18,6 +19,39 @@ export class Effects {
     this.light = new THREE.PointLight(0xffaa55, 0, 30, 1.5);
     this.group.add(this.light);
     this.lightT = 0;
+    this.casingGeo = new THREE.CylinderGeometry(0.0055, 0.0055, 0.03, 8);
+    this.casingMat = new THREE.MeshStandardMaterial({ color: 0xc89b3c, metalness: 1, roughness: 0.25 });
+    this.casings = [];
+    this.holeGeo = new THREE.PlaneGeometry(0.11, 0.11);
+    this.holeMat = new THREE.MeshStandardMaterial({ map: bulletHole(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 0.9 });
+    this.holes = [];
+    this.holeI = 0;
+  }
+
+  casing(pos, vel) {
+    let c = this.casings.find((k) => k.t <= 0);
+    if (!c) {
+      if (this.casings.length >= 40) c = this.casings.reduce((a, b) => (a.t < b.t ? a : b));
+      else { c = { mesh: new THREE.Mesh(this.casingGeo, this.casingMat), vel: new THREE.Vector3(), spin: new THREE.Vector3() }; c.mesh.castShadow = true; this.group.add(c.mesh); this.casings.push(c); }
+    }
+    c.mesh.visible = true;
+    c.mesh.position.copy(pos);
+    c.vel.copy(vel);
+    c.spin.set(Math.random() * 20, Math.random() * 20, Math.random() * 20);
+    c.t = 3;
+    c.bounces = 0;
+  }
+
+  hole(pos, normal) {
+    let m = this.holes[this.holeI];
+    if (!m) { m = new THREE.Mesh(this.holeGeo, this.holeMat); this.group.add(m); this.holes[this.holeI] = m; }
+    this.holeI = (this.holeI + 1) % 90;
+    m.position.copy(pos).addScaledVector(normal, 0.01);
+    m.lookAt(pos.x + normal.x, pos.y + normal.y, pos.z + normal.z);
+    m.rotateZ(Math.random() * Math.PI * 2);
+    const sc = 0.7 + Math.random() * 0.6;
+    m.scale.set(sc, sc, 1);
+    m.visible = true;
   }
 
   take(kind, make) {
@@ -92,6 +126,20 @@ export class Effects {
   }
 
   update(dt) {
+    for (const c of this.casings) {
+      if (c.t <= 0) continue;
+      c.t -= dt;
+      if (c.t <= 0) { c.mesh.visible = false; continue; }
+      if (c.bounces < 3) {
+        c.vel.y -= 18 * dt;
+        c.mesh.position.addScaledVector(c.vel, dt);
+        c.mesh.rotation.x += c.spin.x * dt; c.mesh.rotation.y += c.spin.y * dt; c.mesh.rotation.z += c.spin.z * dt;
+        if (c.mesh.position.y < 0.01) {
+          c.mesh.position.y = 0.01; c.vel.y *= -0.35; c.vel.x *= 0.5; c.vel.z *= 0.5; c.spin.multiplyScalar(0.5); c.bounces++;
+          if (c.bounces >= 3) { c.mesh.rotation.set(Math.PI / 2, 0, Math.random() * 6); }
+        }
+      }
+    }
     if (this.lightT > 0) {
       this.lightT -= dt;
       if (this.lightT <= 0) this.light.intensity = 0;
@@ -124,6 +172,8 @@ export class Effects {
   }
 
   clear() {
+    for (const c of this.casings) { c.t = 0; c.mesh.visible = false; }
+    for (const h of this.holes) if (h) h.visible = false;
     for (const it of this.items) { it.o.visible = false; this.pool[it.kind].push(it.o); }
     this.items.length = 0;
     this.light.intensity = 0;

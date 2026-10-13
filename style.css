@@ -252,3 +252,4 @@ kbd { display: inline-block; min-width: 26px; text-align: center; padding: 2px 8
 .scoreboard td { padding: 3px 6px; border-top: 1px solid rgba(255,255,255,0.06); }
 .scoreboard tr.me td { background: rgba(255,179,0,0.18); }
 .scoreboard tr.deadrow td { opacity: 0.5; }
+  .qrow { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:18px 0 6px; font-size:18px; font-weight:600; flex-wrap:wrap; }

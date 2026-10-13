@@ -4,6 +4,7 @@ import { Game } from './game.js';
 import { PlayerController } from './player.js';
 import { Hud } from './hud.js';
 import { AudioEngine } from './audio.js';
+import { Post } from './post.js';
 import { MAPS, MAP_ORDER } from './maps.js';
 import {
   TEAMS, WEAPONS, PRIMARIES, SECONDARIES, PERKS, STREAKS, MODES, DIFFICULTY, DEFAULT_CLASSES, RANKS, XP_PER_LEVEL,
@@ -19,11 +20,12 @@ function loadProfile() {
   const def = {
     name: 'Lil You', xp: 0, level: 0, selectedClass: 0,
     classes: DEFAULT_CLASSES.map((c) => ({ ...c, perks: [...c.perks] })),
-    settings: { sens: 1, fov: 85, sfx: 0.8, music: 0.5, gameMusic: false, invert: false, lowGfx: false },
+    settings: { sens: 1, fov: 85, sfx: 0.8, music: 0.5, gameMusic: false, invert: false, quality: 'high' },
     last: { mode: 'tdm', map: 'bankhead', difficulty: 'regular', bots: 11, team: 'A' },
     stats: { matches: 0, wins: 0, kills: 0, deaths: 0 },
   };
   if (!p) return def;
+  if (p.settings && p.settings.lowGfx && !p.settings.quality) p.settings.quality = 'low';
   return { ...def, ...p, settings: { ...def.settings, ...p.settings }, last: { ...def.last, ...p.last }, stats: { ...def.stats, ...p.stats } };
 }
 function saveProfile(p) { try { localStorage.setItem(STORE_KEY, JSON.stringify(p)); } catch { /* storage unavailable */ } }
@@ -34,14 +36,14 @@ class App {
     this.settings = this.profile.settings;
     this.canvas = $('#game');
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.settings.lowGfx ? 1 : 1.5));
-    this.renderer.shadowMap.enabled = !this.settings.lowGfx;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.autoClear = false;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.settings.fov, 1, 0.05, 900);
     this.camera.rotation.order = 'YXZ';
+    this.post = new Post(this.renderer, this.scene, this.camera);
+    this.applyQuality();
     this.audio = new AudioEngine();
     this.audio.sfxVol = this.settings.sfx; this.audio.musicVol = this.settings.music;
     this.hud = new Hud($('#hud'), this);
@@ -62,6 +64,20 @@ class App {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.post.resize(w, h);
+  }
+
+  applyQuality() {
+    const q = this.settings.quality || 'high';
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, { low: 1, medium: 1.25, high: 1.5 }[q]));
+    this.renderer.shadowMap.enabled = q !== 'low';
+    this.renderer.setSize(innerWidth, innerHeight);
+    this.post.setQuality(q, innerWidth, innerHeight);
+  }
+
+  applyLook(def) {
+    this.renderer.toneMappingExposure = def.theme.exposure || 1;
+    this.post.setLook(def.theme.look);
   }
 
   // a slow fly-over of a random map behind the menu
@@ -70,9 +86,9 @@ class App {
     import('./world.js').then(({ World }) => {
       if (this.state === 'playing') return;
       const id = MAP_ORDER[Math.floor(Math.random() * MAP_ORDER.length)];
-      this.backdrop = new World(this.scene, MAPS[id], { lowGfx: this.settings.lowGfx });
+      this.backdrop = new World(this.scene, MAPS[id], { renderer: this.renderer, quality: this.settings.quality });
       this.backdropT = 0;
-      this.renderer.toneMappingExposure = MAPS[id].theme.exposure || 1;
+      this.applyLook(MAPS[id]);
     });
   }
 
@@ -83,12 +99,9 @@ class App {
         this.game.update(dt);
         this.hud.update(dt);
       }
-      this.renderer.clear();
-      this.renderer.render(this.scene, this.camera);
-      if (this.player && this.game.player.alive) {
-        this.renderer.clearDepth();
-        this.renderer.render(this.player.vmScene, this.player.vmCamera);
-      }
+      const p = this.game.player;
+      const vm = this.player && p.alive ? { scene: this.player.vmScene, camera: this.player.vmCamera } : null;
+      this.post.render(dt, vm, p.alive ? Math.max(0, 1 - p.health / 100) * 0.9 : 0.8);
     } else {
       if (this.backdrop) {
         this.backdropT += dt;
@@ -96,16 +109,15 @@ class App {
         const t = this.backdropT * 0.05;
         const cx = (w.minX + w.maxX) / 2, cz = (w.minZ + w.maxZ) / 2;
         const R = Math.min(w.maxX - w.minX, w.maxZ - w.minZ) * 0.35;
-        this.camera.position.set(cx + Math.cos(t) * R, w.indoor ? 4 : 14, cz + Math.sin(t) * R);
-        this.camera.lookAt(cx, w.indoor ? 2 : 2, cz);
+        this.camera.position.set(cx + Math.cos(t) * R, w.indoor ? 3 : 7, cz + Math.sin(t) * R);
+        this.camera.lookAt(cx, w.indoor ? 2 : 2.5, cz);
         this.camera.fov = 70; this.camera.updateProjectionMatrix();
         this.backdrop.update(dt, this.backdropT);
       } else if (this.game) {
         // end screen: keep the last match world spinning
         this.game.update(dt);
       }
-      this.renderer.clear();
-      this.renderer.render(this.scene, this.camera);
+      this.post.render(dt, null, 0);
     }
   }
 
@@ -281,7 +293,8 @@ class App {
       <label>Music volume <b id="v-music">${Math.round(s.music * 100)}</b><input type="range" id="s-music" min="0" max="1" step="0.05" value="${s.music}"></label>
       <label class="chk"><input type="checkbox" id="s-gm" ${s.gameMusic ? 'checked' : ''}> Keep the beat playing during matches</label>
       <label class="chk"><input type="checkbox" id="s-inv" ${s.invert ? 'checked' : ''}> Invert mouse Y</label>
-      <label class="chk"><input type="checkbox" id="s-low" ${s.lowGfx ? 'checked' : ''}> Performance mode (no shadows, fewer lights; applies next match)</label>`;
+      <div class="qrow"><span>Graphics quality</span><div class="pills">${['low', 'medium', 'high'].map((q) => `<button class="pill ${s.quality === q ? 'sel' : ''}" data-q="${q}">${q[0].toUpperCase() + q.slice(1)}</button>`).join('')}</div></div>
+      <p class="note">High: 4K shadows, multisampling, reflections and bloom. Medium: 2K shadows and FXAA. Low: no post-processing or shadows, for older laptops. Lighting changes apply from the next map load.</p>`;
     const bind = (id, key, fmt, apply) => $(id).addEventListener('input', (e) => {
       s[key] = +e.target.value; $(`#v-${key}`).textContent = fmt(s[key]); apply?.(s[key]); saveProfile(this.profile);
     });
@@ -291,11 +304,11 @@ class App {
     bind('#s-music', 'music', (v) => Math.round(v * 100), (v) => this.audio.setMusic(v));
     $('#s-gm').onchange = (e) => { s.gameMusic = e.target.checked; saveProfile(this.profile); };
     $('#s-inv').onchange = (e) => { s.invert = e.target.checked; saveProfile(this.profile); };
-    $('#s-low').onchange = (e) => {
-      s.lowGfx = e.target.checked; saveProfile(this.profile);
-      this.renderer.shadowMap.enabled = !s.lowGfx;
-      this.renderer.setPixelRatio(Math.min(devicePixelRatio, s.lowGfx ? 1 : 1.5));
-    };
+    document.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => {
+      s.quality = b.dataset.q; saveProfile(this.profile);
+      document.querySelectorAll('[data-q]').forEach((x) => x.classList.toggle('sel', x === b));
+      this.applyQuality();
+    }));
   }
 
   // ---------- match lifecycle ----------
@@ -307,12 +320,11 @@ class App {
     this.player = null;
     const cls = p.classes[p.selectedClass] || p.classes[0];
     const team = L.team;
-    this.renderer.toneMappingExposure = MAPS[L.map].theme.exposure || 1;
-    this.renderer.shadowMap.enabled = !this.settings.lowGfx;
+    this.applyLook(MAPS[L.map]);
     this.game = new Game(this, {
       mode: L.mode, map: L.map, difficulty: L.difficulty, bots: L.bots, team,
       playerName: p.name, loadout: { primary: cls.primary, secondary: cls.secondary, perks: [...cls.perks] },
-      lowGfx: this.settings.lowGfx,
+      renderer: this.renderer, quality: this.settings.quality,
     });
     this.player = new PlayerController(this, this.game);
     this.player.onSpawn();

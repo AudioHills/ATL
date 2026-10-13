@@ -4,7 +4,7 @@ import { World } from './world.js';
 import { Effects } from './effects.js';
 import { Soldier, RADIUS } from './soldier.js';
 import { BotBrain } from './bot.js';
-import { buildCharacter, setCharacterGun, poseCharacter } from './models.js';
+import { buildCharacter, setCharacterGun, poseCharacter } from './characters.js';
 import { raySphere, rayBox, boxNormal } from './physics.js';
 import { MAPS } from './maps.js';
 import {
@@ -36,7 +36,7 @@ export class Game {
     this.diffKey = opts.difficulty;
     this.diff = DIFFICULTY[opts.difficulty];
     this.teams = this.mode.teams;
-    this.world = new World(this.scene, this.def, { lowGfx: opts.lowGfx });
+    this.world = new World(this.scene, this.def, { renderer: opts.renderer, quality: opts.quality });
     this.effects = new Effects(this.scene);
     this.soldiers = [];
     this.bots = [];
@@ -246,11 +246,19 @@ export class Game {
       } else if (hit.hit) {
         const n = hit.hit === 'floor' ? new THREE.Vector3(0, 1, 0) : hit.hit === 'ceiling' ? new THREE.Vector3(0, -1, 0) : new THREE.Vector3(...boxNormal(hit.hit, end.x, end.y, end.z));
         if (Math.random() < (pellets > 1 ? 0.35 : 1)) this.effects.impact(end, n, false);
+        if (hit.hit !== 'floor' || Math.random() < 0.5) this.effects.hole(end, n);
       }
     }
     void anyHit;
     s.bloom = Math.min(s.bloom + def.recoil * 0.45, 6);
     this.effects.flash(muzzle, s.isPlayer ? 0.0 : 0.55, 0.05);
+    // brass ejects to the right of the shooter (skip far-away bots and pump/revolver)
+    if (!['pump', 'revolver'].includes(def.model) && (s.isPlayer || Math.hypot(s.pos.x - this.player.pos.x, s.pos.z - this.player.pos.z) < 18)) {
+      const rx = Math.cos(s.yaw), rz = -Math.sin(s.yaw);
+      const fx = -Math.sin(s.yaw), fz = -Math.cos(s.yaw);
+      const at = s.isPlayer ? new THREE.Vector3(s.pos.x + rx * 0.18 + fx * 0.35, s.eyeY - 0.12, s.pos.z + rz * 0.18 + fz * 0.35) : muzzle.clone().addScaledVector(new THREE.Vector3(fx, 0, fz), -0.5);
+      this.effects.casing(at, new THREE.Vector3(rx * (2 + Math.random()) + s.vel.x, 2 + Math.random() * 1.5, rz * (2 + Math.random()) + s.vel.z));
+    }
     this.effects.muzzleLight(muzzle);
     this.playShot(s, def);
     for (const b of this.bots) if (b !== s && b.alive) b.brain.hear(s.pos.x, s.pos.z, this.time);

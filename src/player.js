@@ -1,6 +1,6 @@
 // Human player: input, first-person camera, viewmodel animation.
 import * as THREE from 'three';
-import { buildViewmodel } from './models.js';
+import { buildViewmodel } from './guns.js';
 import { STREAKS } from './config.js';
 import { flashSprite } from './textures.js';
 
@@ -234,6 +234,7 @@ export class PlayerController {
     root.rotation.set(rx, ry, rz);
     this.flashT -= dt;
     this.flash.visible = this.flashT > 0 && !def.melee;
+    this.vmScene.environment = this.game.scene.environment;
     this.vmCamera.aspect = this.camera.aspect;
     this.vmCamera.updateProjectionMatrix();
   }

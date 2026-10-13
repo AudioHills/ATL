@@ -9,7 +9,8 @@ export const MAPS = {
     theme: {
       skyTop: '#05060d', skyBot: '#2a1a2e', fog: '#1a1420', fogNear: 25, fogFar: 140,
       sun: '#9fb2ff', sunI: 1.1, sunDir: [-30, 60, 20], hemiTop: '#7f8fd0', hemiBot: '#4a3524', hemiI: 1.5,
-      lamps: '#ffb36b', stars: true, skyline: true, ground: 'asphalt', exposure: 1.35,
+      lamps: '#ffb36b', stars: true, skyline: true, ground: 'asphalt', exposure: 1.25,
+      env: 'night', wet: true, look: { bloom: 0.9, threshold: 0.8, saturation: 1.12, contrast: 1.1, tint: 0xe6ecff }, clouds: 0.55, cloud: '#2b2433', fogDensity: 0.011,
     },
     patches: [
       { x: 0, z: 0, w: 14, d: 100, tex: 'road' },
@@ -77,7 +78,8 @@ export const MAPS = {
     theme: {
       skyTop: '#1d2a5a', skyBot: '#ff8a4a', fog: '#a06a5a', fogNear: 40, fogFar: 170,
       sun: '#ffb070', sunI: 2.2, sunDir: [60, 25, -30], hemiTop: '#b4c4ff', hemiBot: '#6a4a3a', hemiI: 1.3,
-      lamps: '#ffd28a', stars: false, skyline: true, ground: 'asphalt', exposure: 1.0,
+      lamps: '#ffd28a', stars: false, skyline: true, ground: 'asphalt', exposure: 0.95,
+      env: 'venice_sunset_1k.hdr', look: { bloom: 0.5, threshold: 0.9, saturation: 1.05, contrast: 1.08, tint: 0xfff0e2 }, clouds: 0.45, cloud: '#f0b090', fogDensity: 0.006,
     },
     patches: [
       { x: 0, z: 0, w: 44, d: 44, tex: 'grass' },
@@ -134,7 +136,8 @@ export const MAPS = {
     theme: {
       skyTop: '#000', skyBot: '#000', fog: '#0c0d10', fogNear: 30, fogFar: 110,
       sun: '#dfe8ff', sunI: 0.5, sunDir: [10, 60, 10], hemiTop: '#e8f0ff', hemiBot: '#4a4338', hemiI: 1.2,
-      lamps: '#e8f4ff', stars: false, skyline: false, ground: 'tile', exposure: 1.1, wallTex: 'walltile',
+      lamps: '#e8f4ff', stars: false, skyline: false, ground: 'tile', exposure: 1.05, wallTex: 'walltile',
+      env: 'indoor', look: { bloom: 0.6, threshold: 0.85, saturation: 0.95, contrast: 1.1, tint: 0xeef6f0 }, fogDensity: 0.012,
     },
     patches: [
       { x: -4, z: 0, w: 4, d: 110, tex: 'track', y: 0.02 },
@@ -190,7 +193,8 @@ export const MAPS = {
     theme: {
       skyTop: '#6d7a88', skyBot: '#c9c4b8', fog: '#9fa3a3', fogNear: 35, fogFar: 160,
       sun: '#fff2dc', sunI: 2.4, sunDir: [-40, 70, -30], hemiTop: '#dfe8f4', hemiBot: '#7a6a5a', hemiI: 1.5,
-      lamps: '#fff1c4', stars: false, skyline: true, ground: 'dirt', exposure: 1.1,
+      lamps: '#fff1c4', stars: false, skyline: true, ground: 'dirt', exposure: 1.0,
+      env: 'quarry_01_1k.hdr', look: { bloom: 0.35, threshold: 0.92, saturation: 0.88, contrast: 1.1, tint: 0xf4f2ea }, clouds: 0.8, cloud: '#b8bcc0', fogDensity: 0.007,
     },
     patches: [
       { x: 0, z: 0, w: 34, d: 20, tex: 'concrete', y: 0.02 },
