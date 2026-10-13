@@ -29,6 +29,7 @@ export class World {
     this.indoor = !!def.indoor;
     this.th = def.theme;
     this.night = !!def.theme.stars;
+    M.configure?.({ quality: this.quality, wet: !!def.theme.wet, night: this.night, indoor: this.indoor });
     this.buildEnvironment();
     this.buildGround();
     this.buildBounds();
