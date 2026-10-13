@@ -580,9 +580,9 @@ function asphaltLayer(s, mW, mH, seed) {
     let ro = 0.9 - stone * 0.14 + (m - 0.5) * 0.08 - pt * 0.05;
     // block-crack network where the mask allows (alligator cracking in worn zones)
     const e = crk.f2[i] - crk.f1[i] + (gr - 0.5) * 0.04;
-    const cm = ss(0.58, 0.72, crkM[i]);
-    const c = Math.max(cm * ss(0.03, 0.0, e), thin[i] * (1 - pt));
-    v *= 1 - c * 0.75; hh -= c * 0.55; ro = mix(ro, 1, c);
+    const cm = ss(0.66, 0.8, crkM[i]);
+    const c = Math.max(cm * ss(0.035, 0.0, e), thin[i] * (1 - pt));
+    v *= 1 - c * 0.8; hh -= c * 0.22; ro = mix(ro, 1, c);
     // sealant snakes: glossy, slightly raised, jet black
     const t = tar[i] * (1 - pt);
     v = mix(v, 0.07, t); ro = mix(ro, 0.32, t); hh += t * 0.12;
@@ -723,7 +723,7 @@ function concreteStructure(kind) {
     const seed = 101 + kind.length * 17;
     const mac = fbm(w, h, 3, 5, seed), mid = fbm(w, h, 10, 3, seed + 1), fine = fbm(w, h, 48, 2, seed + 2);
     const pores = worley(w, h, kind === 'stucco' ? 260 : 140, seed + 3, 1), wn = white(n, seed + 4);
-    const streak = fbm(w, h, 26, 3, seed + 5, 0.5, 2);
+    const streak = fbm(w, h, 40, 2, seed + 5, 0.35, 1);
     const eff = fbm(w, h, 4, 4, seed + 6);
     const val = new Float32Array(n), tint = new Float32Array(n);
     const vertical = VERT.has(kind);
@@ -850,7 +850,7 @@ function metalStructure(kind, galv) {
     const seed = 300 + kind.length * 13 + (galv ? 5 : 0);
     const mac = fbm(w, h, 3, 4, seed), mid = fbm(w, h, 12, 3, seed + 1), fine = fbm(w, h, 60, 2, seed + 2), wn = white(n, seed + 3);
     const rustN = fbm(w, h, 14, 4, seed + 4), rustF = fbm(w, h, 40, 3, seed + 5);
-    const streak = fbm(w, h, 30, 3, seed + 6, 0.5, 2);
+    const streak = fbm(w, h, 48, 2, seed + 6, 0.35, 1);
     const spang = galv ? worley(w, h, 28, seed + 7, 1) : null;
     const scratches = raster(w, h, (g) => { const r = rng(seed + 8); for (let i = 0; i < (kind === 'gun' ? 40 : 90); i++) { const x = r() * w, y = r() * h, a = r() * 6.283, l = (8 + r() * 50) * SC * (W / 512); g.lineWidth = (0.6 + r()) * SC; g.globalAlpha = 0.3 + r() * 0.7; wrap9(g, w, h, (gg) => { gg.beginPath(); gg.moveTo(x, y); gg.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); gg.stroke(); }); } });
     const edgeWear = kind === 'painted' || kind === 'dump' || kind === 'wreck';
@@ -859,23 +859,25 @@ function metalStructure(kind, galv) {
     const K = new Float32Array(n), RA = new Float32Array(n), RV = new Float32Array(n), CA = new Float32Array(n), BARE = new Uint8Array(n), SA = new Float32Array(n), FA = new Float32Array(n);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      const ch = big ? Math.sin((x / w) * 40 * 6.2831853) : 0; // 76 mm corrugation pitch
+      let ch = 0;
+      if (big && galv) ch = Math.sin((x / w) * 40 * 6.2831853); // 76 mm sinusoidal roofing sheet
+      else if (big) { const f = ((x / w) * 12) % 1; ch = ss(0.08, 0.2, f) - ss(0.55, 0.67, f); ch = ch * 2 - 0.6; } // container trapezoid
       const ed = edgeWear ? Math.min(x, w - 1 - x, y, h - 1 - y) / w : 1;
       const edgeM = edgeWear ? ss(0.06, 0.0, ed + (fine[i] - 0.5) * 0.05) : 0;
       // rust concentrates at sheet edges, the bottom splash zone and bleeds down from seams;
       // open faces only get the odd small blister
       const bottom = ss(0.8, 1.0, y / h) * (big ? 1 : 0.6);
-      const rust = ss(0.8, 0.9, rustN[i] + (rustF[i] - 0.5) * 0.35 + bottom * 0.55 + edgeM * 0.6) * wearAmt;
+      const rust = ss(0.9, 0.97, rustN[i] + (rustF[i] - 0.5) * 0.12 + bottom * 0.65 + edgeM * 0.65) * wearAmt;
       const runSrc = big ? ss(0.4, 0.0, y / h) : edgeM * 0.5 + ss(0.5, 0.0, y / h) * 0.5;
       const run = ss(0.55, 0.85, streak[i]) * Math.min(1, runSrc * 0.9 + ss(0.7, 0.85, rustN[i]) * 0.5) * wearAmt * 0.75;
-      const chip = ss(0.7, 0.78, mid[i] * 0.6 + fine[i] * 0.5 + edgeM * 0.5) * wearAmt * (galv ? 0 : 1);
+      const chip = ss(big ? 0.8 : 0.72, big ? 0.86 : 0.8, mid[i] * 0.6 + fine[i] * 0.5 + edgeM * 0.5 + bottom * 0.25) * wearAmt * (galv ? 0 : 1);
       const sc = scratches[i] * (kind === 'gun' ? 0.5 : 1);
       let ro, me, k;
       if (galv) {
         const sp = spang.id[i];
         const wr = ss(0.45, 0.95, mac[i] * 0.7 + mid[i] * 0.4);
         k = 0.8 + (sp - 0.5) * 0.08 + (mac[i] - 0.5) * 0.08 + (wn[i] - 0.5) * 0.03 - ss(0.55, 0.85, streak[i]) * 0.1;
-        FA[i] = wr * 0.3;
+        FA[i] = wr * 0.14 + ss(0.6, 0.9, streak[i]) * 0.12;
         ro = 0.5 + (sp - 0.5) * 0.12 + wr * 0.3 + (mac[i] - 0.5) * 0.1; me = 1 - wr * 0.6;
       } else {
         k = 1 + (mac[i] - 0.5) * 0.12 + (mid[i] - 0.5) * 0.05 + (wn[i] - 0.5) * 0.03;
@@ -891,7 +893,7 @@ function metalStructure(kind, galv) {
       Ro[i] = ro; s.Me[i] = me;
       H[i] = 0.5 + ch * (big ? 0.9 : 0) + (mid[i] - 0.5) * 0.06 + (fine[i] - 0.5) * 0.05 + rust * (rustF[i] - 0.3) * 0.25 - chip * 0.08 - sc * 0.06 + (wn[i] - 0.5) * 0.02;
     }
-    const set = bake(s, { normal: big ? 10 : kind === 'gun' ? 0.8 : 2, tileM: big ? 3 : 1.5, detail: 'metal', detM: 0.4, detStr: 0.3, macro: 0.6, ao1: big ? 0.3 : 2, ao2: big ? 0.2 : 1 });
+    const set = bake(s, { normal: big ? (galv ? 10 : 5) : kind === 'gun' ? 0.8 : 2, tileM: big ? 3 : 1.5, detail: 'metal', detM: 0.4, detStr: 0.3, macro: 0.6, ao1: big ? 0.3 : 2, ao2: big ? 0.2 : 1 });
     Object.assign(set, { K, RA, RV, CA, BARE, SA, FA, galv, w, h });
     return set;
   });
@@ -917,7 +919,7 @@ export function metalSet(color = '#6b7077', kind = 'painted') {
         if (sc > 0) { r = mix(r, 0.6, sc * 0.6); g = mix(g, 0.6, sc * 0.6); b = mix(b, 0.62, sc * 0.6); }
       }
       const ra = RA[i];
-      if (ra > 0) { const rv = RV[i]; r = mix(r, 0.42 * rv, ra); g = mix(g, 0.2 * rv, ra); b = mix(b, 0.09 * rv, ra); }
+      if (ra > 0) { const rv = RV[i]; r = mix(r, 0.33 * rv, ra); g = mix(g, 0.16 * rv, ra); b = mix(b, 0.075 * rv, ra); }
       s.R[i] = r; s.G[i] = g; s.B[i] = b;
     }
     return recolor(st, s);
@@ -925,7 +927,7 @@ export function metalSet(color = '#6b7077', kind = 'painted') {
 }
 
 const WOOD_KIND = {
-  crate: { plank: 6, weather: 0.1, paint: null }, pallet: { plank: 5, weather: 0.45 }, tank: { plank: 10, weather: 0.8, vertical: true },
+  crate: { plank: 6, weather: 0.3, edges: true, stencil: true }, pallet: { plank: 5, weather: 0.55, edges: true }, tank: { plank: 10, weather: 0.8, vertical: true },
   bark: { bark: true }, bench: { plank: 4, weather: 0.3 }, pole: { creosote: true, vertical: true }, tie: { creosote: true },
   board: { ply: true, weather: 0.35 }, gunwood: { plank: 1, weather: 0, fine: true },
 };
@@ -951,6 +953,15 @@ export function woodSet(color = '#7a4a26', key = 'wood') {
     // knots
     const knots = []; for (let i = 0; i < 5; i++) knots.push([r() * w, r() * h, (6 + r() * 10) * SC]);
     const planks = K.plank || 1, ph = h / planks;
+    // stencilled shipping marks (faded spray paint)
+    const sten = K.stencil ? raster(w, h, (g) => {
+      g.globalAlpha = 0.85; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = `900 ${Math.round(w * 0.075)}px Arial, sans-serif`;
+      g.fillText(['THIS SIDE UP', 'HANDLE WITH CARE', 'ATL FREIGHT', 'FRAGILE'][Math.floor(r() * 4)], w / 2, h * 0.32);
+      g.font = `700 ${Math.round(w * 0.05)}px Arial, sans-serif`;
+      g.fillText('LOT ' + (100 + Math.floor(r() * 900)) + ' - ' + (10 + Math.floor(r() * 80)) + ' KG', w / 2, h * 0.68);
+    }) : null;
+    const stenN = K.stencil ? fbm(w, h, 24, 2, seed + 9) : null;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const pl = Math.floor(y / ph), pid = hash2(pl, 0, seed), ly = y - pl * ph;
@@ -980,6 +991,16 @@ export function woodSet(color = '#7a4a26', key = 'wood') {
       c = [mix(c[0], gry, wt), mix(c[1], gry, wt), mix(c[2], gry * 1.02, wt)];
       const split = K.creosote ? ss(0.02, 0.0, Math.abs(warp2[i] - 0.5) - 0.01) * ss(0.4, 0.6, mac[i]) : 0;
       c = c.map((v) => v * (1 - gap * 0.75) * (1 - split * 0.7));
+      if (K.edges) {
+        // handling grime toward the box edges (texture borders map to box edges)
+        const ed = Math.min(x, w - 1 - x, y, h - 1 - y) / w;
+        const eg = ss(0.12, 0.0, ed + (mac[i] - 0.5) * 0.06) * 0.45 + ss(0.6, 0.95, mac[i]) * 0.2;
+        c = c.map((v) => v * (1 - eg));
+      }
+      if (sten) {
+        const a = sten[i] * ss(0.25, 0.55, stenN[i] + (wn[i] - 0.5) * 0.3) * 0.8;
+        c = [mix(c[0], 0.05, a), mix(c[1], 0.05, a), mix(c[2], 0.06, a)];
+      }
       Rr[i] = c[0]; G[i] = c[1]; B[i] = c[2];
       H[i] = 0.55 + late * (K.fine ? 0.05 : 0.18) * (1 + wt) - gap * 0.6 - split * 0.5 + (wn[i] - 0.5) * 0.05 + kd * 0.1;
       Ro[i] = (K.fine ? 0.38 : K.creosote ? 0.8 : 0.72) + late * 0.08 + wt * 0.18 + gap * 0.2 + (mac[i] - 0.5) * 0.08;
@@ -1055,7 +1076,7 @@ export function wallTileSet(color = '#d9c38a') {
     const W = R(1024), s = surf(W, W);
     const { w, h, n, R: Rr, G, B, H, Ro } = s;
     const nx = 16, ny = 40, tw = w / nx, th = h / ny, grout = tw * 0.035;
-    const base = rgb(color), band = rgb('#a8322a'), wn = white(n, 701), mac = fbm(w, h, 3, 4, 702), streak = fbm(w, h, 24, 3, 703, 0.5, 2), mid = fbm(w, h, 12, 3, 704);
+    const base = rgb(color), band = rgb('#a8322a'), wn = white(n, 701), mac = fbm(w, h, 3, 4, 702), streak = fbm(w, h, 32, 2, 703, 0.35, 1), mid = fbm(w, h, 12, 3, 704);
     for (let y = 0; y < h; y++) {
       const row = Math.floor(y / th), ly = y - row * th, off = row % 2 ? tw / 2 : 0;
       const isBand = row >= Math.floor(ny * 0.6) && row < Math.floor(ny * 0.6) + 2;
@@ -1235,7 +1256,7 @@ function facadeOverlay(store, tag, variant) {
     s.Me = wallM; // ORM.B = wall mask for normal / roughness
     const L = facadeLayout(w, h, store), S = w / 1024;
     const r = rng(1200 + variant * 31 + (store ? 7 : 0) + (tag ? 3 : 0));
-    const mac = fbm(w, h, 2, 4, 1201 + variant), streak = fbm(w, h, 40, 3, 1202 + variant, 0.5, 3), wn = white(n, 1203);
+    const mac = fbm(w, h, 2, 4, 1201 + variant), streak = fbm(w, h, 48, 2, 1202 + variant, 0.35, 2), wn = white(n, 1203);
     // wall grime multiplier (white = untouched)
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x;
@@ -1359,7 +1380,7 @@ function facadeOverlay(store, tag, variant) {
         }
       }
       // gate graffiti scribbles
-      paints.push((g) => { g.save(); g.beginPath(); g.rect(dx, dy, dw, h - dy); g.clip(); paintTag(g, dx + dw / 2, dy + (h - dy) * 0.55, dw * 0.9, r, { style: 2 }); g.restore(); });
+
     } else {
       // stone plinth with splash grime
       const py = h - L.bottom * 0.7;
@@ -1859,7 +1880,7 @@ export function std(o = {}) {
   if (o.transparent) { p.transparent = true; p.depthWrite = false; }
   if (o.side) p.side = o.side;
   const m = new THREE.MeshStandardMaterial(p);
-  if (set && set.orm && !globalThis.__nopatch) {
+  if (set && set.orm) {
     const defs = { C_SET: '' };
     const U = { uWet: GU.uWet, uNight: GU.uNight, tORM: { value: set.orm }, uMacro: { value: set.macro ?? 0.8 }, uPud: { value: set.pud ?? 0.6 }, uAOI: { value: 1 } };
     if (set.antitile && BASE >= 1) defs.C_ANTITILE = '';
