@@ -7,10 +7,18 @@ export const MAPS = {
     desc: 'Corner stores, the wing spot and a long main drag with alleys to flank through.',
     bounds: [-42, 42, -50, 50],
     theme: {
-      skyTop: '#05060d', skyBot: '#2a1a2e', fog: '#1a1420', fogNear: 25, fogFar: 140,
-      sun: '#9fb2ff', sunI: 1.1, sunDir: [-30, 60, 20], hemiTop: '#7f8fd0', hemiBot: '#4a3524', hemiI: 1.5,
-      lamps: '#ffb36b', stars: true, skyline: true, ground: 'asphalt', exposure: 1.25,
-      env: 'night', wet: true, look: { bloom: 0.9, threshold: 0.8, saturation: 1.12, contrast: 1.1, tint: 0xe6ecff }, clouds: 0.55, cloud: '#2b2433', fogDensity: 0.011,
+      // MWIII-style wet night: cold moonlit blues, sodium pools, neon spill, haze glowing round lights
+      skyTop: '#02040b', skyBot: '#161a2a', fog: '#141826', fogNear: 25, fogFar: 140, fogDensity: 0.011,
+      haze: { falloff: 0.07, base: 0, sun: 0.18, sunPower: 5, color: '#8ea4ff' }, hazeK: 9,
+      sun: '#8fa4ff', sunI: 0.95, sunDir: [-25, 30, 55], sunSoft: 0.03, sunDisc: 3, sunGlow: 0.5,
+      hemiTop: '#3a4a7a', hemiBot: '#2a1e16', hemiI: 1.2, hemiScale: 0.5,
+      lamps: '#ffa24e', cityGlow: '#ff9a52', stars: true, skyline: true, ground: 'asphalt', exposure: 1.8,
+      env: 'night', wet: true, clouds: 0.5, cloud: '#272b3c', lightScale: 0.75, shafts: 0.42,
+      look: {
+        bloom: 0.065, dirt: 0.16, saturation: 1.08, contrast: 0.2, vignette: 0.36, grain: 0.03, ca: 0.014,
+        tint: 0xf4f6ff, shadows: '#b4c6ff', highlights: '#ffe4c4', lift: '#010208', aoTint: '#1c2238',
+        ssr: 1.0, rays: 0.1, ao: 1.0, aoRadius: 1.0, adaptKey: 0.03, adaptMin: 0.75, adaptMax: 1.4,
+      },
     },
     patches: [
       { x: 0, z: 0, w: 14, d: 100, tex: 'road' },
@@ -76,10 +84,18 @@ export const MAPS = {
     desc: 'Apartment blocks around a basketball court. Breezeways, parking lots, nowhere to hide.',
     bounds: [-45, 45, -45, 45],
     theme: {
-      skyTop: '#1d2a5a', skyBot: '#ff8a4a', fog: '#a06a5a', fogNear: 40, fogFar: 170,
-      sun: '#ffb070', sunI: 2.2, sunDir: [60, 25, -30], hemiTop: '#b4c4ff', hemiBot: '#6a4a3a', hemiI: 1.3,
-      lamps: '#ffd28a', stars: false, skyline: true, ground: 'asphalt', exposure: 0.95,
-      env: 'venice_sunset_1k.hdr', look: { bloom: 0.5, threshold: 0.9, saturation: 1.05, contrast: 1.08, tint: 0xfff0e2 }, clouds: 0.45, cloud: '#f0b090', fogDensity: 0.006,
+      // golden-hour dusk: low warm key, cool blue fill, long shadows, sun-side haze and god rays
+      skyTop: '#26386e', skyBot: '#f29a62', fog: '#b98676', fogNear: 40, fogFar: 170, fogDensity: 0.0075,
+      haze: { falloff: 0.05, base: 0, sun: 0.55, sunPower: 10, color: '#ffae70' }, hazeK: 6,
+      sun: '#ffb070', sunI: 2.7, sunDir: [60, 20, -30], sunSoft: 0.018, sunDisc: 22, sunGlow: 0.85,
+      hemiTop: '#9fb2ee', hemiBot: '#5a3e30', hemiI: 1.2, hemiScale: 0.35,
+      lamps: '#ffc477', stars: false, skyline: true, ground: 'asphalt', exposure: 1.2,
+      env: 'venice_sunset_1k.hdr', envI: 0.75, clouds: 0.42, cloud: '#e49c84', lightScale: 0.6, shafts: 0.12,
+      look: {
+        bloom: 0.055, dirt: 0.14, saturation: 1.06, contrast: 0.16, vignette: 0.3, grain: 0.025, ca: 0.012,
+        tint: 0xfff6ec, shadows: '#b2c0ff', highlights: '#ffe0bc', lift: '#04040c', aoTint: '#302c48',
+        ssr: 0.35, rays: 0.3, rayDecay: 0.95, ao: 1.0, aoRadius: 0.9, adaptKey: 0.08, adaptMin: 0.75, adaptMax: 1.35,
+      },
     },
     patches: [
       { x: 0, z: 0, w: 44, d: 44, tex: 'grass' },
@@ -134,10 +150,17 @@ export const MAPS = {
     bounds: [-30, 30, -55, 55],
     indoor: true, ceiling: 7.5,
     theme: {
-      skyTop: '#000', skyBot: '#000', fog: '#0c0d10', fogNear: 30, fogFar: 110,
-      sun: '#dfe8ff', sunI: 0.5, sunDir: [10, 60, 10], hemiTop: '#e8f0ff', hemiBot: '#4a4338', hemiI: 1.2,
-      lamps: '#e8f4ff', stars: false, skyline: false, ground: 'tile', exposure: 1.05, wallTex: 'walltile',
-      env: 'indoor', look: { bloom: 0.6, threshold: 0.85, saturation: 0.95, contrast: 1.1, tint: 0xeef6f0 }, fogDensity: 0.012,
+      // underground: hard fluorescent strips, polished tile, cool green cast, dark gaps between fixtures
+      skyTop: '#000', skyBot: '#000', fog: '#13161a', fogNear: 30, fogFar: 110, fogDensity: 0.011,
+      haze: { falloff: 0, sun: 0 },
+      sun: '#e6eeff', sunI: 0.7, sunDir: [10, 60, 10], sunSoft: 0.14, hemiTop: '#dfe8ff', hemiBot: '#8a8274', hemiI: 1.0, hemiScale: 0.45,
+      lamps: '#e8f4ff', stars: false, skyline: false, ground: 'tile', exposure: 1.0, wallTex: 'walltile',
+      env: 'indoor', lightScale: 0.75, shafts: 0.2,
+      look: {
+        bloom: 0.055, dirt: 0.08, saturation: 0.94, contrast: 0.18, vignette: 0.34, grain: 0.03, ca: 0.012,
+        tint: 0xf0fbf2, shadows: '#b4d2c8', highlights: '#fff6e6', lift: '#010302', aoTint: '#18221e',
+        ssr: 0.8, rays: 0, ao: 1.2, aoRadius: 1.0, adaptKey: 0.07, adaptMin: 0.7, adaptMax: 1.4,
+      },
     },
     patches: [
       { x: -4, z: 0, w: 4, d: 110, tex: 'track', y: 0.02 },
@@ -191,10 +214,18 @@ export const MAPS = {
     desc: 'Junkyard maze of crushed cars and containers around a garage you can fight through.',
     bounds: [-45, 45, -45, 45],
     theme: {
-      skyTop: '#6d7a88', skyBot: '#c9c4b8', fog: '#9fa3a3', fogNear: 35, fogFar: 160,
-      sun: '#fff2dc', sunI: 2.4, sunDir: [-40, 70, -30], hemiTop: '#dfe8f4', hemiBot: '#7a6a5a', hemiI: 1.5,
-      lamps: '#fff1c4', stars: false, skyline: true, ground: 'dirt', exposure: 1.0,
-      env: 'quarry_01_1k.hdr', look: { bloom: 0.35, threshold: 0.92, saturation: 0.88, contrast: 1.1, tint: 0xf4f2ea }, clouds: 0.8, cloud: '#b8bcc0', fogDensity: 0.007,
+      // flat overcast: soft top-down sky light, very soft sun, strong contact occlusion, muted palette
+      skyTop: '#86919e', skyBot: '#cac8c0', fog: '#a7abad', fogNear: 35, fogFar: 160, fogDensity: 0.0075,
+      haze: { falloff: 0.035, base: 0, sun: 0.3, sunPower: 4, color: '#fff2dc' }, hazeK: 5,
+      sun: '#fff0dc', sunI: 1.7, sunDir: [-40, 70, -30], sunSoft: 0.09, sunDisc: 0, sunGlow: 0.45,
+      hemiTop: '#dfe8f4', hemiBot: '#6f655a', hemiI: 1.5, hemiScale: 0.45,
+      lamps: '#fff1c4', stars: false, skyline: true, ground: 'dirt', exposure: 1.2,
+      env: 'quarry_01_1k.hdr', envI: 0.9, clouds: 0.8, cloud: '#9da2a8', lightScale: 0.8,
+      look: {
+        bloom: 0.04, dirt: 0.06, saturation: 0.86, contrast: 0.17, vignette: 0.3, grain: 0.028, ca: 0.01,
+        tint: 0xf6f4ee, shadows: '#c2cad4', highlights: '#fff8ec', lift: '#030303', aoTint: '#2a2c30',
+        ssr: 0.3, rays: 0.12, ao: 1.25, aoRadius: 1.2, adaptKey: 0.165, adaptMin: 0.75, adaptMax: 1.35,
+      },
     },
     patches: [
       { x: 0, z: 0, w: 34, d: 20, tex: 'concrete', y: 0.02 },
